@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- Import d3.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/4.2.8/d3.min.js" type="text/JavaScript"></script>
+  <style>
+      circle {
+          fill: green;
+          stroke: black;
+          stroke-width: 0.7;
+          opacity: 0.7;
+      }
+
+      circle:hover {
+        fill: yellow;
+        stroke: black;
+        stroke-width: 0.7;
+        opacity: 0.7;
+      }
+
+      h2 {
+        text-align: center;
+      }
+
+      div.years_buttons {
+          text-align: center;
+          background-color: black;
+      }
+
+      #legend{
+        background-color: #000000;
+       
+      }
+  </style>
+
+    <script type="text/javascript">
+    // Import world from json and trigger dataViz function
+    d3.json("countries.json", dataViz);
+
+      function dataViz(geo_data) {
+
+        //Assigning height and width
+        var width = 1400;
+        var height = 600;
+
+        // Format for date time
+        var format = d3.timeParse("%d-%m-%Y (%H:%M h)");
+
+        //Import data from wc_geo.tsv
+        d3.tsv("wc_geo.tsv", function(d) {
+          // Taking out value of attendance and formating date and calling function plotter
+                       d['attendance'] = +d['attendance'];
+                       d['date'] = format(d['date']);
+                       return d;
+                     }, plotter);
+        
+        // appendinng map svg with height and width   
+        var svg = d3.select("body")
+            .append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .append('g')
+            .attr('class', 'map');
+        // appending h2
+        d3.select("body")
+          .append("h2")
+          .text("Fifa World Cup");
+
+        
+        
+        // year arry to store years between 1930 and 2015 excluding 1942 and 1946
+        // 1942 and 1946 does not have any data in tsv file
+        var years = [];
+        for (var i = 1930; i < 2015; i += 4) {
+          if(i !== 1942 && i !== 1946) {
+            years.push(i);
+          }
+        }
+
+        // Scaling map size
+        var projection = d3.geoMercator()
+                           .scale(130)
+                           .translate([width / 2, height / 1.5]);
+
+        var path = d3.geoPath()
+                    .projection(projection);
+
+        // Plotting the map with colors, path and features
+        var map = svg.selectAll('path')
+                     .data(geo_data.features)
+                     .enter()
+                     .append('path')
+                     .attr('d', path)
+                     .style('fill', '#000000')
+                     .style('stroke', 'white')
+                     .style('stroke-width', 1);
+
+      // Plotter function to plot data in map
+      function plotter(data) {
+        function year(data) {
+        //  console.log(data);
+
+        //Calculating total attendence
+          var total = d3.sum(data, function(d) {
+            return d['attendance'];
+          });
+
+        // console.log(total);
+
+        //Projecting countries coordinates
+          var coords = data.map(function(d) {
+            return projection([+d.long, d.lat]);
+          });
+
+          // console.log(coords);
+
+          var center_x = d3.mean(coords, function(d) {
+            return d[0];
+          });
+
+          var center_y = d3.mean(coords, function(d) {
+            return d[1];
+          });
+
+          var teams = d3.set();
+
+          //Looping through tsv files team1 and team2 and adding them to teams
+          data.forEach(function(d) {
+            teams.add(d['team1']);
+            teams.add(d['team2']);
+          });
+
+          return {
+            'attendance': total,
+            'x': center_x,
+            'y': center_y,
+            'teams': teams.values()
+          };
+        };
+        //draw circles logic
+        var nested = d3.nest()
+                       .key(function(d) {
+                            return d['date'].getUTCFullYear();
+                        })
+                        .rollup(year)
+                        .entries(data);
+        
+        // finding out max attendence from nesed object
+        var attendance_max = d3.max(nested, function(d) {
+            return d.value['attendance'];
+        });
+
+        // Circle radius based on attendence max
+        var radius = d3.scaleSqrt()
+                        .domain([0, attendance_max])
+                        .range([0,15]);
+
+        function key_func(d) {
+          return d['key']
+        }
+
+        // Sorting, Setting circle radius based on attendence
+          svg.append('g')
+              .selectAll('circle')
+              .data(nested.sort(function(a, b) {
+                return b.value['attendance'] - a.value['attendance'];
+              }), key_func)
+              .enter()
+              .append('circle')
+              .attr('cx', function(d) { return d.value['x']; })
+              .attr('cy', function(d) { return d.value['y']; })
+              .attr('r', function(d) {
+                return radius(d.value['attendance']); }
+              )
+        
+        // Funnction to update h2 with year on click
+        function update(year) {
+          console.log(year);
+          var filtered = nested.filter(function(d) {
+            return new Date(d['key']).getUTCFullYear() == year;
+          });
+
+          d3.select("h2")
+            .text(year + " - Fifa World Cup ");
+
+          var circles = svg.selectAll('circle')
+                          .data(filtered, key_func);
+                          
+        // Remove circle on exit
+        circles.exit().remove();
+
+        // Creating circle on click and radius based on attendance
+        circles.enter()
+                .append('circle')
+                .style("opacity", 0)
+                .transition()
+                .duration(666)
+                .ease(d3.easeLinear)
+                .style("opacity", 1)
+                .attr('cx', function(d) { return d.value['x']; })
+                .attr('cy', function(d) { return d.value['y']; })
+                .attr('r', function(d) { return radius(d.value['attendance'])})
+
+        var countries = filtered[0].value['teams'];
+
+        // Resetting colors to black and red
+        function update_countries(d) {
+            if(countries.indexOf(d.properties.name) !== -1) {
+              return "red";
+            } else {
+              return "black";
+            }
+        }
+
+        svg.selectAll('path')
+            .style('fill', update_countries)
+            .style('stroke', "white");
+
+        };
+
+        var year_idx = 0;
+        // Funciton to add yars and buttons with 10ms interval
+        var year_interval = setInterval(function() {
+          year_idx++;
+          if(year_idx >= years.length) {
+            clearInterval(year_interval)
+
+        // Appending button with year
+        var buttons = d3.select("body")
+                    .append("div")
+                    .attr("class", "years_buttons")
+                    .selectAll("div")
+                    .data(years)
+                    .enter()
+                    .append("button")
+                    .text(function(d) {
+                      return d;
+                    });
+
+        // Button on click button style change
+        buttons.on("click", function(d) {
+              d3.select(".years_buttons")
+                .selectAll("button")
+                .transition()
+                .duration(500)
+                .style("color", "white")
+                .style("background", "black");
+
+              d3.select(this)
+                .transition()
+                .duration(500)
+                .style("background", "red")
+                .style("color", "white")
+                update(d);
+        })
+      }
+    }, 10);
+  };
+};
+      </script>
+  </head>
+  <body>
+    <div>
+      <svg id="legend" height=95 width=1400></svg>
+    </div>
+    <script>
+
+      // select the svg area for legend
+      var svg = d3.select("#legend")
+      
+      // Handmade legend
+      svg.append("text").attr("x",100).attr("y",35).text("Legend: ").style("text-decoration", "underline").style('fill', 'white')
+      svg.append("circle").attr("cx",200).attr("cy",30).attr("r", 6).style("fill", "green")
+      svg.append("circle").attr("cx",200).attr("cy",50).attr("r", 6).style("fill", "red")
+      svg.append("circle").attr("cx",200).attr("cy",70).attr("r", 6).style("fill", "black").style('stroke', 'white')
+      svg.append("text").attr("x", 220).attr("y", 35).text("Places with most attendence, circles radius is based on mazimum attendence number").style("font-size", "15px").attr("alignment-baseline","middle").style('fill', 'white')
+      svg.append("text").attr("x", 220).attr("y", 55).text("Countries that participited in world cup").style("font-size", "15px").attr("alignment-baseline","middle").style('fill', 'white')
+      svg.append("text").attr("x", 220).attr("y", 75).text("Countries that did not participited in world cup").style("font-size", "15px").attr("alignment-baseline","middle").style('fill', 'white')
+      </script>
+  </body>
+</html>
